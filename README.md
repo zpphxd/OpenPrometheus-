@@ -95,6 +95,42 @@ export PROMETHEUS_SUBAGENT_MODEL=opus      # scorers/benchmarkers use the strong
 Roles: `ARCHITECT`, `STRATEGIST`, `IMPROVER`, `SUBAGENT` (running sub-agents),
 `CANDIDATE` (running the candidate under test).
 
+## MCP tools (giving built agents real capabilities)
+
+Built agents can be granted **MCP tools**, on any backend:
+
+- **Claude Code provider** grants them natively (your already-connected servers, via
+  `--allowedTools`).
+- **API providers** (Anthropic/OpenAI) execute them through a built-in stdio **MCP proxy**
+  (`mcp_client.py`) — so MCP works model-agnostically, not just on Claude.
+
+**Tiered safety gate.** MCP is **off** unless you name what's allowed:
+
+```bash
+prometheus "answer questions about my codebase" --mcp-allow "leann-server"
+prometheus "..." --mcp-allow "leann-server,mcp__notion__*" --mcp-allow-sensitive
+```
+
+- Within allowed servers, **safe** tools (search/list/get/read) are auto-eligible for the
+  Architect to grant.
+- **Sensitive** tools (send/write/pay/book/deploy) require `--mcp-allow-sensitive`.
+- The orchestrator filters every candidate's `mcp_tools` through the gate — anything out
+  of policy is dropped and logged, even if a model tries to grant it.
+
+## Capability negotiation (the agent helps build itself)
+
+The candidate isn't just tested *at* — it talks back. Each round (unless `--no-negotiate`):
+
+1. **Self-report** — the candidate introspects on its own failures and requests what it
+   needs: tools, examples, prompt fixes.
+2. **Analyst validates** — a `capability_analyst` sub-agent checks each request against the
+   allowed catalog and the external eval, approving only what's justified (and never a tool
+   outside policy).
+3. **Improver grants** — the next version incorporates exactly the approved capabilities.
+
+The self-report + analyst verdict for each round are saved to
+`runs/<id>/evals/capability-NNN.json`.
+
 ## Output
 
 Two artifacts:
@@ -110,7 +146,7 @@ candidate/   agent-v1.json, agent-v2.json, …, agent-final.json
 subagents/   every specialized sub-agent the Strategist created
 tests/       the growing test curriculum per round
 outputs/     candidate outputs per round
-evals/       scored, diagnosed eval reports per round
+evals/       scored, diagnosed eval reports + capability-NNN.json negotiation records
 state.json   stop reason + score history
 ```
 
