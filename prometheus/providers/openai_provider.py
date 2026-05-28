@@ -15,57 +15,6 @@ from .base import Provider, ProviderResponse, ProviderError, ToolExecutor
 
 DEFAULT_MODEL = "gpt-4o"
 
-_TOOL_SCHEMAS = {
-    "python_exec": {
-        "type": "function",
-        "function": {
-            "name": "python_exec",
-            "description": "Execute a Python 3 snippet in a sandbox and return stdout/stderr.",
-            "parameters": {
-                "type": "object",
-                "properties": {"code": {"type": "string"}},
-                "required": ["code"],
-            },
-        },
-    },
-    "read_file": {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read a UTF-8 text file from the working directory.",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}},
-                "required": ["path"],
-            },
-        },
-    },
-    "write_file": {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": "Write a UTF-8 text file in the working directory.",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-                "required": ["path", "content"],
-            },
-        },
-    },
-    "web_fetch": {
-        "type": "function",
-        "function": {
-            "name": "web_fetch",
-            "description": "Fetch the text content of a URL.",
-            "parameters": {
-                "type": "object",
-                "properties": {"url": {"type": "string"}},
-                "required": ["url"],
-            },
-        },
-    },
-}
-
 
 class OpenAIProvider(Provider):
     name = "openai"
@@ -117,7 +66,8 @@ class OpenAIProvider(Provider):
         system: str,
         user: str,
         *,
-        tools: Optional[list[str]] = None,
+        tool_names: Optional[list[str]] = None,
+        tool_defs: Optional[list[dict[str, Any]]] = None,
         tool_executor: Optional[ToolExecutor] = None,
         model: Optional[str] = None,
         max_steps: int = 12,
@@ -125,11 +75,16 @@ class OpenAIProvider(Provider):
         workdir: Optional[str] = None,
         allow_risky: bool = False,
     ) -> ProviderResponse:
-        tools = tools or []
-        if not tools or tool_executor is None:
+        tool_defs = tool_defs or []
+        if not tool_defs or tool_executor is None:
             return self.complete(system, user, model=model, max_tokens=max_tokens)
 
-        tool_defs = [_TOOL_SCHEMAS[t] for t in tools if t in _TOOL_SCHEMAS]
+        openai_tools = [
+            {"type": "function",
+             "function": {"name": d["name"], "description": d.get("description", ""),
+                          "parameters": d.get("input_schema", {"type": "object", "properties": {}})}}
+            for d in tool_defs
+        ]
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -141,7 +96,7 @@ class OpenAIProvider(Provider):
                 model=model or self.model,
                 max_tokens=max_tokens,
                 messages=messages,
-                tools=tool_defs,
+                tools=openai_tools,
             )
             choice = resp.choices[0].message
             if not choice.tool_calls:

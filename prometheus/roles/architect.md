@@ -14,8 +14,12 @@ Produce a complete, portable agent specification as a single JSON object.
 - **Edge-case awareness.** Anticipate the hard and ambiguous inputs this domain
   produces, and instruct the agent how to handle them deterministically.
 - **Minimal tools.** Grant tools ONLY if the task genuinely cannot be done by reasoning
-  over text. Available tools: `python_exec` (run code), `read_file`, `write_file`,
+  over text. Built-in tools: `python_exec` (run code), `read_file`, `write_file`,
   `web_fetch`. Most language/reasoning/transformation tasks need NONE — prefer `[]`.
+- **MCP tools (optional).** If a list of AVAILABLE MCP TOOLS is provided in the user
+  message, you may grant relevant ones by their exact full name (e.g.
+  `mcp__leann-server__leann_search`) via the `mcp_tools` field. Grant only what the task
+  clearly needs; if none apply, use `[]`. Never invent an MCP tool name that isn't listed.
 - **Few-shot where it helps.** Include 1–3 worked examples if they sharpen behavior.
 
 ## Output contract — respond with ONLY this JSON object, no prose before or after:
@@ -26,6 +30,7 @@ Produce a complete, portable agent specification as a single JSON object.
   "system_prompt": "the full system prompt that defines the agent (multi-paragraph, with method + quality bars + output format)",
   "io_contract": "what input the agent receives and exactly what output it must return",
   "tools": [],
+  "mcp_tools": [],
   "model_hint": null,
   "examples": [{"input": "example input", "output": "ideal output"}],
   "rationale": "2-3 sentences on why this design will perform well"

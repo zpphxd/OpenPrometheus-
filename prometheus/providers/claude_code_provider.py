@@ -104,7 +104,8 @@ class ClaudeCodeProvider(Provider):
         system: str,
         user: str,
         *,
-        tools: Optional[list[str]] = None,
+        tool_names: Optional[list[str]] = None,
+        tool_defs: Optional[list[dict[str, Any]]] = None,
         tool_executor: Optional[ToolExecutor] = None,
         model: Optional[str] = None,
         max_steps: int = 12,
@@ -112,12 +113,16 @@ class ClaudeCodeProvider(Provider):
         workdir: Optional[str] = None,
         allow_risky: bool = False,
     ) -> ProviderResponse:
-        tools = tools or []
-        if not tools:
+        tool_names = tool_names or []
+        if not tool_names:
             return self.complete(system, user, model=model, max_tokens=max_tokens)
 
-        granted = [_TOOL_MAP[t] for t in tools if t in _TOOL_MAP]
-        risky = bool(set(tools) & _RISKY_TOOLS)
+        # Built-ins map to Claude Code tools; MCP tools (mcp__server__tool) pass through
+        # and are auto-loaded from the user's connected servers. Listing them in
+        # --allowedTools pre-approves them so they run headlessly.
+        granted = [_TOOL_MAP[t] for t in tool_names if t in _TOOL_MAP]
+        granted += [t for t in tool_names if t.startswith("mcp__")]
+        risky = bool(set(tool_names) & _RISKY_TOOLS)
 
         # Claude Code runs its OWN tools headlessly; we don't need tool_executor here.
         cmd = ["claude", "-p", "--output-format", "json"]

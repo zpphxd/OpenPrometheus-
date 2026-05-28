@@ -16,12 +16,15 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Optional
 
-# Tool names the Architect/Strategist may grant. Mapped to concrete implementations
-# per-provider in the runner (e.g. python_exec -> Bash for the claude-code provider).
+# Built-in tool names the Architect/Strategist may grant. Mapped to concrete
+# implementations per-provider in the runner (e.g. python_exec -> Bash for claude-code).
 KNOWN_TOOLS = {"python_exec", "read_file", "write_file", "web_fetch"}
 
+# MCP tools are granted by their full convention name, e.g. mcp__leann-server__leann_search.
+_MCP_TOOL_RE = re.compile(r"^mcp__[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+$")
+
 # Roles a sub-agent can play in the testing/benchmarking pipeline.
-SUBAGENT_ROLES = {"test_generator", "adversary", "scorer", "benchmarker"}
+SUBAGENT_ROLES = {"test_generator", "adversary", "scorer", "benchmarker", "capability_analyst"}
 
 KINDS = {"candidate", "subagent"}
 
@@ -61,6 +64,7 @@ class AgentSpec:
     system_prompt: str
     io_contract: str = ""
     tools: list[str] = field(default_factory=list)
+    mcp_tools: list[str] = field(default_factory=list)
     model_hint: Optional[str] = None
     examples: list[dict[str, Any]] = field(default_factory=list)
     kind: str = "candidate"
@@ -82,6 +86,11 @@ class AgentSpec:
         unknown = set(self.tools) - KNOWN_TOOLS
         if unknown:
             raise SpecError(f"unknown tools: {sorted(unknown)}; allowed: {sorted(KNOWN_TOOLS)}")
+        if not isinstance(self.mcp_tools, list):
+            raise SpecError("spec.mcp_tools must be a list")
+        bad_mcp = [t for t in self.mcp_tools if not _MCP_TOOL_RE.match(str(t))]
+        if bad_mcp:
+            raise SpecError(f"malformed mcp_tools (expect mcp__server__tool): {bad_mcp}")
         if self.kind == "subagent":
             if self.subagent_role not in SUBAGENT_ROLES:
                 raise SpecError(

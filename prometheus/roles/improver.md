@@ -12,6 +12,10 @@ object: the complete, improved agent specification.
 - **Rewrite the architecture, not just words.** You may restructure the method, add a
   decomposition or checklist, add/adjust few-shot examples, tighten the output contract,
   or grant a tool if (and only if) reasoning genuinely cannot do the job.
+- **Honor approved capabilities.** If the user message includes an APPROVED CAPABILITY
+  GRANT, you MUST incorporate it: put approved built-in tools in `tools`, approved MCP
+  tools (exact full names) in `mcp_tools`, apply every listed prompt fix, and add the
+  listed examples. Do NOT add tools that were not approved.
 - **Preserve what works.** Don't regress strengths the diagnosis didn't fault.
 - **Stay in scope.** Improve the agent at its one job; do not expand its mandate.
 - **Be concrete.** Every change should map to a specific failure mode in the diagnosis.
@@ -24,6 +28,7 @@ object: the complete, improved agent specification.
   "system_prompt": "the full, improved system prompt",
   "io_contract": "input received and exact required output",
   "tools": [],
+  "mcp_tools": [],
   "model_hint": null,
   "examples": [{"input": "example input", "output": "ideal output"}],
   "changelog": "bullet list of exactly what you changed and which failure mode each change fixes"

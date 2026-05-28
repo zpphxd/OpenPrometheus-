@@ -35,6 +35,9 @@ class Config:
     tests_per_round: int = 6
     allow_candidate_code_exec: bool = False
     export_cc: bool = True
+    mcp_allow: list[str] = field(default_factory=list)   # servers / tool-patterns Prometheus may grant
+    mcp_allow_sensitive: bool = False                    # also allow sensitive (send/write/pay) tools
+    negotiate: bool = True                               # candidate<->creator capability negotiation
     runs_dir: Path = field(default_factory=lambda: Path("runs"))
 
     def role(self, name: str) -> RoleConfig:
@@ -51,6 +54,9 @@ class Config:
         tests_per_round: Optional[int] = None,
         allow_candidate_code_exec: Optional[bool] = None,
         export_cc: Optional[bool] = None,
+        mcp_allow: Optional[list[str]] = None,
+        mcp_allow_sensitive: Optional[bool] = None,
+        negotiate: Optional[bool] = None,
         runs_dir: Optional[Path] = None,
     ) -> "Config":
         base_provider = provider or os.environ.get("PROMETHEUS_PROVIDER") or DEFAULT_PROVIDER
@@ -70,6 +76,10 @@ class Config:
             v = os.environ.get(env)
             return int(v) if v else default
 
+        def _csv(env):
+            v = os.environ.get(env, "")
+            return [x.strip() for x in v.split(",") if x.strip()]
+
         return cls(
             roles=roles,
             threshold=threshold if threshold is not None else _f("PROMETHEUS_THRESHOLD", 8.5),
@@ -82,5 +92,11 @@ class Config:
             if allow_candidate_code_exec is not None
             else os.environ.get("PROMETHEUS_ALLOW_CODE_EXEC", "").lower() in ("1", "true", "yes"),
             export_cc=export_cc if export_cc is not None else True,
+            mcp_allow=mcp_allow if mcp_allow is not None else _csv("PROMETHEUS_MCP_ALLOW"),
+            mcp_allow_sensitive=bool(mcp_allow_sensitive)
+            if mcp_allow_sensitive is not None
+            else os.environ.get("PROMETHEUS_MCP_ALLOW_SENSITIVE", "").lower() in ("1", "true", "yes"),
+            negotiate=negotiate if negotiate is not None
+            else os.environ.get("PROMETHEUS_NEGOTIATE", "true").lower() in ("1", "true", "yes"),
             runs_dir=runs_dir or Path(os.environ.get("PROMETHEUS_RUNS_DIR", "runs")),
         )

@@ -35,6 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="new tests generated per round (default 6)")
     p.add_argument("--allow-code-exec", action="store_true",
                    help="permit candidate agents to execute code (off by default; use with trust)")
+    p.add_argument("--mcp-allow", default=None,
+                   help="comma-separated MCP servers/tool-patterns the built agent may use "
+                        "(e.g. 'leann-server,mcp__notion__*'). MCP is off unless set.")
+    p.add_argument("--mcp-allow-sensitive", action="store_true",
+                   help="also allow granting SENSITIVE MCP tools (send/write/pay/book/deploy)")
+    p.add_argument("--no-negotiate", action="store_true",
+                   help="disable the candidate<->creator capability negotiation loop")
     p.add_argument("--runs-dir", default=None, help="where to write run artifacts (default ./runs)")
     p.add_argument("--no-export", action="store_true",
                    help="skip writing the Claude Code .md export")
@@ -52,6 +59,9 @@ def main(argv: list[str] | None = None) -> int:
         tests_per_round=args.tests_per_round,
         allow_candidate_code_exec=True if args.allow_code_exec else None,
         export_cc=False if args.no_export else None,
+        mcp_allow=[x.strip() for x in args.mcp_allow.split(",") if x.strip()] if args.mcp_allow else None,
+        mcp_allow_sensitive=True if args.mcp_allow_sensitive else None,
+        negotiate=False if args.no_negotiate else None,
         runs_dir=Path(args.runs_dir) if args.runs_dir else None,
     )
     orch = Orchestrator(cfg)

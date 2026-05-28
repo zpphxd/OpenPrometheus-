@@ -23,10 +23,10 @@ _TOOL_MAP = {
 
 def to_markdown(spec: AgentSpec) -> str:
     fm = [f"name: {spec.name}", f"description: {spec.description}"]
-    if spec.tools:
-        cc_tools = sorted({_TOOL_MAP[t] for t in spec.tools if t in _TOOL_MAP})
-        if cc_tools:
-            fm.append(f"tools: {', '.join(cc_tools)}")
+    cc_tools = sorted({_TOOL_MAP[t] for t in spec.tools if t in _TOOL_MAP})
+    cc_tools += list(spec.mcp_tools)  # MCP tools are referenced by their full mcp__ name
+    if cc_tools:
+        fm.append(f"tools: {', '.join(cc_tools)}")
     if spec.model_hint:
         fm.append(f"model: {spec.model_hint}")
 

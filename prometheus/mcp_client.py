@@ -167,3 +167,53 @@ class MCPStdioClient:
         if result.get("isError"):
             return f"ERROR: {text}"
         return text
+
+
+class MCPProxy:
+    """Routes full tool names (mcp__server__tool) to stdio server clients, caching each
+    spawned server for the proxy's lifetime. Used by API-provider candidates to execute
+    MCP tools. Use as a context manager so servers are torn down."""
+
+    def __init__(self) -> None:
+        self.servers = discover_stdio_servers()
+        self._clients: dict[str, MCPStdioClient] = {}
+
+    def __enter__(self) -> "MCPProxy":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def _split(self, full_name: str) -> tuple[str, str]:
+        if not full_name.startswith("mcp__"):
+            raise MCPError(f"not an MCP tool name: {full_name}")
+        rest = full_name[len("mcp__"):]
+        # longest known-server prefix wins (server names may contain '-')
+        for srv in sorted(self.servers, key=len, reverse=True):
+            if rest.startswith(srv + "__"):
+                return srv, rest[len(srv) + 2:]
+        # fallback: first "__" split
+        srv, _, tool = rest.partition("__")
+        return srv, tool
+
+    def _client(self, server: str) -> MCPStdioClient:
+        if server not in self._clients:
+            if server not in self.servers:
+                raise MCPError(f"unknown/unproxiable MCP server: {server}")
+            d = self.servers[server]
+            c = MCPStdioClient(d["command"], d["args"], d["env"], d.get("cwd"))
+            c.start()
+            self._clients[server] = c
+        return self._clients[server]
+
+    def call(self, full_name: str, arguments: dict[str, Any]) -> str:
+        server, tool = self._split(full_name)
+        return self._client(server).call_tool(tool, arguments)
+
+    def close(self) -> None:
+        for c in self._clients.values():
+            try:
+                c.close()
+            except Exception:
+                pass
+        self._clients.clear()

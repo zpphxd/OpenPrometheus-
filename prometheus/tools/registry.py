@@ -7,6 +7,36 @@ from typing import Any
 
 from . import sandbox
 
+# Provider-neutral JSON-schema definitions for the built-in tools. Providers adapt these
+# to their own tool-format (Anthropic input_schema, OpenAI function.parameters).
+BUILTIN_SCHEMAS: dict[str, dict[str, Any]] = {
+    "python_exec": {
+        "name": "python_exec",
+        "description": "Execute a Python 3 snippet in a sandbox and return stdout/stderr.",
+        "input_schema": {"type": "object", "properties": {"code": {"type": "string"}},
+                         "required": ["code"]},
+    },
+    "read_file": {
+        "name": "read_file",
+        "description": "Read a UTF-8 text file from the working directory.",
+        "input_schema": {"type": "object", "properties": {"path": {"type": "string"}},
+                         "required": ["path"]},
+    },
+    "write_file": {
+        "name": "write_file",
+        "description": "Write a UTF-8 text file in the working directory.",
+        "input_schema": {"type": "object",
+                         "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                         "required": ["path", "content"]},
+    },
+    "web_fetch": {
+        "name": "web_fetch",
+        "description": "Fetch the text content of a URL.",
+        "input_schema": {"type": "object", "properties": {"url": {"type": "string"}},
+                         "required": ["url"]},
+    },
+}
+
 
 class ToolRegistry:
     def __init__(self, workdir: Path, allow_code_exec: bool = False) -> None:

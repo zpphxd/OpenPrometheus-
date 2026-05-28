@@ -13,46 +13,6 @@ from .base import Provider, ProviderResponse, ProviderError, ToolExecutor
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
 
-# Minimal JSON-schema tool definitions for the portable tools.
-_TOOL_SCHEMAS = {
-    "python_exec": {
-        "name": "python_exec",
-        "description": "Execute a Python 3 snippet in a sandbox and return its stdout/stderr.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"code": {"type": "string"}},
-            "required": ["code"],
-        },
-    },
-    "read_file": {
-        "name": "read_file",
-        "description": "Read a UTF-8 text file from the agent's working directory.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"path": {"type": "string"}},
-            "required": ["path"],
-        },
-    },
-    "write_file": {
-        "name": "write_file",
-        "description": "Write a UTF-8 text file in the agent's working directory.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-            "required": ["path", "content"],
-        },
-    },
-    "web_fetch": {
-        "name": "web_fetch",
-        "description": "Fetch the text content of a URL.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"url": {"type": "string"}},
-            "required": ["url"],
-        },
-    },
-}
-
 
 class AnthropicProvider(Provider):
     name = "anthropic"
@@ -106,7 +66,8 @@ class AnthropicProvider(Provider):
         system: str,
         user: str,
         *,
-        tools: Optional[list[str]] = None,
+        tool_names: Optional[list[str]] = None,
+        tool_defs: Optional[list[dict[str, Any]]] = None,
         tool_executor: Optional[ToolExecutor] = None,
         model: Optional[str] = None,
         max_steps: int = 12,
@@ -114,11 +75,15 @@ class AnthropicProvider(Provider):
         workdir: Optional[str] = None,
         allow_risky: bool = False,
     ) -> ProviderResponse:
-        tools = tools or []
-        if not tools or tool_executor is None:
+        tool_defs = tool_defs or []
+        if not tool_defs or tool_executor is None:
             return self.complete(system, user, model=model, max_tokens=max_tokens)
 
-        tool_defs = [_TOOL_SCHEMAS[t] for t in tools if t in _TOOL_SCHEMAS]
+        anthropic_tools = [
+            {"name": d["name"], "description": d.get("description", ""),
+             "input_schema": d.get("input_schema", {"type": "object", "properties": {}})}
+            for d in tool_defs
+        ]
         messages: list[dict[str, Any]] = [{"role": "user", "content": user}]
         trace: list[dict[str, Any]] = []
         in_tok = out_tok = 0
@@ -128,7 +93,7 @@ class AnthropicProvider(Provider):
                 model=model or self.model,
                 max_tokens=max_tokens,
                 system=system,
-                tools=tool_defs,
+                tools=anthropic_tools,
                 messages=messages,
             )
             in_tok += msg.usage.input_tokens

@@ -55,12 +55,22 @@ class Provider:
         system: str,
         user: str,
         *,
-        tools: Optional[list[str]] = None,
+        tool_names: Optional[list[str]] = None,
+        tool_defs: Optional[list[dict[str, Any]]] = None,
         tool_executor: Optional[ToolExecutor] = None,
         model: Optional[str] = None,
         max_steps: int = 12,
         max_tokens: int = 4096,
         workdir: Optional[str] = None,
+        allow_risky: bool = False,
     ) -> ProviderResponse:
-        # Reasoning-only fallback: ignore tools, just complete.
+        """Run an agentic loop with tools.
+
+        `tool_names`  — bare names (built-ins + mcp__...), used by providers with native
+                        tool runtimes (claude-code).
+        `tool_defs`   — provider-neutral [{name, description, input_schema}], used by API
+                        providers that must declare schemas; executed via `tool_executor`.
+
+        Default: reasoning-only fallback (ignore tools).
+        """
         return self.complete(system, user, model=model, max_tokens=max_tokens)

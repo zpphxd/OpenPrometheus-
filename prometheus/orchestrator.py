@@ -50,19 +50,48 @@ class Orchestrator:
         self.config = config
         self.meta = Meta(config)
         self.log = logger or (lambda msg: print(msg, flush=True))
+        self._mcp_proxy = None
+        self._mcp_menu = ""
+        self._mcp_allowed: set[str] = set()
+        self._mcp_schemas: dict[str, Any] = {}
 
     # ------------------------------------------------------------------ #
     def build(self, task: str) -> dict[str, Any]:
+        self._mcp_proxy = None
+        try:
+            return self._build(task)
+        finally:
+            if self._mcp_proxy is not None:
+                self._mcp_proxy.close()
+
+    def _build(self, task: str) -> dict[str, Any]:
         run_id = time.strftime("%Y%m%d-%H%M%S")
         run_dir = self.config.runs_dir / run_id
         for sub in ("candidate", "subagents", "tests", "outputs", "evals"):
             (run_dir / sub).mkdir(parents=True, exist_ok=True)
         self.log(f"▶ Prometheus run {run_id}  (task: {task})")
 
+        # 0. MCP catalog + proxy (tiered gate; empty unless --mcp-allow set) ---- #
+        from .mcp_catalog import build_catalog
+        catalog = build_catalog(self.config.mcp_allow, self.config.mcp_allow_sensitive, logger=self.log)
+        self._mcp_menu = catalog.menu_text() if catalog.entries else ""
+        self._mcp_allowed = set(catalog.entries)
+        self._mcp_schemas = {
+            name: {"description": e.description, "input_schema": e.input_schema}
+            for name, e in catalog.proxiable_entries().items()
+        }
+        if catalog.entries:
+            self.log(f"  MCP: {len(catalog.entries)} tools grantable "
+                     f"({len(self._mcp_schemas)} proxiable to API providers)")
+            from .mcp_client import MCPProxy
+            self._mcp_proxy = MCPProxy()
+
         # 1. Architect -------------------------------------------------- #
-        candidate = self.meta.architect(task)
+        candidate = self.meta.architect(task, mcp_menu=self._mcp_menu)
+        candidate = self._gate_mcp(candidate)
         candidate.save(run_dir / "candidate" / f"agent-v{candidate.version}.json")
-        self.log(f"  architect → candidate '{candidate.name}' (tools={candidate.tools or '[]'})")
+        self.log(f"  architect → candidate '{candidate.name}' "
+                 f"(tools={candidate.tools or '[]'}, mcp={candidate.mcp_tools or '[]'})")
 
         # 2. Strategist (initial roster) -------------------------------- #
         subagents = self.meta.strategist(candidate)
@@ -72,8 +101,10 @@ class Orchestrator:
 
         generators = [s for s in subagents if s.subagent_role in ("test_generator", "adversary")]
         scorers = [s for s in subagents if s.subagent_role in ("scorer", "benchmarker")]
+        analysts = [s for s in subagents if s.subagent_role == "capability_analyst"]
         if not generators or not scorers:
             raise RuntimeError("strategist did not produce both generators and scorers")
+        analyst = analysts[0] if analysts else subagent_factory.default_capability_analyst(candidate)
 
         sub_provider = self.meta.provider_for("subagent")
         cand_provider = self.meta.provider_for("candidate")
@@ -94,7 +125,7 @@ class Orchestrator:
             self._save_json(run_dir / "tests" / f"suite-{it:03d}.json", {"tests": tests})
             self.log(f"  tests: {len(tests)} total ({len(new_tests)} new this round)")
 
-            # (b) run candidate against every test
+            # (b) run candidate against every test (with MCP tools if granted)
             outputs = self._run_candidate(candidate, tests, cand_provider)
             self._save_json(run_dir / "outputs" / f"outputs-{it:03d}.json", outputs)
 
@@ -122,17 +153,28 @@ class Orchestrator:
                 self.log(f"  ⚠ plateau ({plateau} rounds without gain) — stopping.")
                 break
 
-            # (e) improve + spawn new specialists against weaknesses
+            # (e) negotiation: candidate self-reports needs → analyst validates → improver
             eval_report = _eval_report(rr)
-            candidate = self.meta.improver(candidate, eval_report)
+            capability = None
+            if self.config.negotiate:
+                capability = self._negotiate(candidate, eval_report, analyst, sub_provider, run_dir, it)
+
+            candidate = self.meta.improver(candidate, eval_report, capability=capability)
+            candidate = self._gate_mcp(candidate)
             candidate.save(run_dir / "candidate" / f"agent-v{candidate.version}.json")
-            self.log(f"  improver → candidate v{candidate.version}")
+            self.log(f"  improver → candidate v{candidate.version} "
+                     f"(tools={candidate.tools or '[]'}, mcp={candidate.mcp_tools or '[]'})")
             if rr.weaknesses:
                 extra = self.meta.strategist(candidate, weaknesses=rr.weaknesses)
                 if extra:
                     self._save_subagents(extra, run_dir)
                     for s in extra:
-                        (generators if s.subagent_role in ("test_generator", "adversary") else scorers).append(s)
+                        if s.subagent_role in ("test_generator", "adversary"):
+                            generators.append(s)
+                        elif s.subagent_role in ("scorer", "benchmarker"):
+                            scorers.append(s)
+                        elif s.subagent_role == "capability_analyst":
+                            analyst = s
                     self.log(f"  strategist → +{len(extra)} specialists targeting weaknesses")
 
         # loop ended without clearing threshold: finalize the best version we saw
@@ -157,12 +199,44 @@ class Orchestrator:
                 resp = run_spec(
                     candidate, t["input"], provider,
                     allow_code_exec=self.config.allow_candidate_code_exec,
+                    mcp_proxy=self._mcp_proxy,
+                    mcp_schemas=self._mcp_schemas,
                 )
                 text = resp.text
             except Exception as exc:
                 text = f"[candidate error: {exc}]"
             results.append({"test_id": t["id"], "input": t["input"], "output": text})
         return results
+
+    def _gate_mcp(self, candidate):
+        """Drop any MCP tool the candidate requested that policy doesn't allow; log it."""
+        if not candidate.mcp_tools:
+            return candidate
+        kept = [m for m in candidate.mcp_tools if m in self._mcp_allowed]
+        dropped = [m for m in candidate.mcp_tools if m not in self._mcp_allowed]
+        if dropped:
+            self.log(f"  · gate: withheld non-allowed MCP tools {dropped}")
+        if kept != candidate.mcp_tools:
+            return AgentSpec.from_dict({**candidate.to_dict(), "mcp_tools": kept})  # preserve version
+        return candidate
+
+    def _negotiate(self, candidate, eval_report, analyst, provider, run_dir, it):
+        """Candidate self-reports needs; the analyst validates against the allowed catalog."""
+        try:
+            self_report = self.meta.introspect(candidate, eval_report, self._mcp_menu)
+            decision = subagent_factory.analyze_capability(
+                analyst, candidate, self_report, eval_report,
+                self._mcp_menu, self._mcp_allowed, provider,
+            )
+        except Exception as exc:
+            self.log(f"  ! negotiation skipped: {exc}")
+            return None
+        self._save_json(run_dir / "evals" / f"capability-{it:03d}.json",
+                        {"self_report": self_report, "decision": decision})
+        granted = (decision.get("grant_builtin_tools") or []) + (decision.get("grant_mcp_tools") or [])
+        if granted:
+            self.log(f"  ⇄ negotiation: candidate requested + analyst approved {granted}")
+        return decision
 
     def _evaluate(self, scorers, tests, outputs, provider, it, version) -> RoundResult:
         by_id = {o["test_id"]: o["output"] for o in outputs}

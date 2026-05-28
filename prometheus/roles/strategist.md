@@ -18,6 +18,10 @@ Each sub-agent is itself an agent specification. Output a single JSON object.
 - **benchmarker** — focuses on a measurable quality dimension specific to the domain
   (e.g. correctness rate, format compliance, latency-of-reasoning, completeness) and
   reports it.
+- **capability_analyst** (optional, recommended) — the gatekeeper that reviews the
+  candidate's self-reported needs against the eval diagnosis and the allowed tool list,
+  and decides which tools/examples/prompt-fixes are genuinely justified. Include ONE if
+  the candidate may benefit from tools or richer guidance.
 
 ## Design principles
 - **Domain-specific, not generic.** A date-parser needs a locale/i18n adversary and an

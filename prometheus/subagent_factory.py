@@ -44,6 +44,20 @@ Be ruthless and specific. 10 = flawless against the rubric; 7 = competent with r
 <5 = materially wrong. Do not be charitable. Reward correctness over verbosity.
 """
 
+# Injected so the capability analyst's verdict is always parseable.
+_ANALYST_CONTRACT = """
+
+## OUTPUT CONTRACT (mandatory — the harness parses this)
+Respond with ONLY this JSON object:
+{"grant_builtin_tools": [], "grant_mcp_tools": [],
+ "prompt_fixes": ["concrete instruction to add"],
+ "add_examples": [{"input": "...", "output": "..."}],
+ "rejected": [{"request": "...", "reason": "..."}],
+ "rationale": "why this set best fixes the diagnosed failures"}
+Approve MCP tools ONLY by exact full name from the ALLOWED list. Prefer prompt fixes and
+examples over new tools. Justify every grant against a specific failure.
+"""
+
 _GENERATOR_ROLES = {"test_generator", "adversary"}
 _SCORER_ROLES = {"scorer", "benchmarker"}
 
@@ -59,6 +73,8 @@ def build_subagents(strategist_data: dict[str, Any], candidate: AgentSpec) -> li
             system += _TEST_CONTRACT
         elif role in _SCORER_ROLES:
             system += _SCORE_CONTRACT
+        elif role == "capability_analyst":
+            system += _ANALYST_CONTRACT
         spec = AgentSpec(
             name=raw.get("name", f"{role}-agent"),
             description=raw.get("description", ""),
@@ -106,6 +122,56 @@ def generate_tests(
             }
         )
     return tests
+
+
+def default_capability_analyst(candidate: AgentSpec) -> AgentSpec:
+    """Built-in analyst used when the Strategist didn't create one."""
+    from .roles import load_role
+    return AgentSpec(
+        name="capability-analyst",
+        description="Gatekeeper that approves justified tools/examples/prompt-fixes.",
+        task=candidate.task,
+        system_prompt=load_role("capability_analyst") + _ANALYST_CONTRACT,
+        kind="subagent",
+        subagent_role="capability_analyst",
+        meta={"for_candidate": candidate.name, "builtin": True},
+    ).validate()
+
+
+def analyze_capability(
+    analyst: AgentSpec,
+    candidate: AgentSpec,
+    self_report: dict[str, Any],
+    eval_report: dict[str, Any],
+    allowed_mcp_menu: str,
+    allowed_mcp_names: set[str],
+    provider: Provider,
+    *,
+    model: Optional[str] = None,
+) -> dict[str, Any]:
+    import json as _json
+    user = (
+        "CANDIDATE SELF-REPORT (its requested capabilities):\n"
+        + _json.dumps(self_report, indent=2)[:6000]
+        + "\n\nEXTERNAL EVAL DIAGNOSIS:\n"
+        + _json.dumps(eval_report, indent=2)[:6000]
+        + "\n\nALLOWED MCP TOOLS (you may approve ONLY these, by exact full name):\n"
+        + (allowed_mcp_menu or "(none)")
+        + "\n\nDecide what to grant per your OUTPUT CONTRACT."
+    )
+    resp = run_spec(analyst, user, provider, model=model)
+    data = extract_json(resp.text)
+    # defense in depth: drop any MCP grant not in the allowed set
+    granted_mcp = [m for m in data.get("grant_mcp_tools", []) if m in allowed_mcp_names]
+    dropped = [m for m in data.get("grant_mcp_tools", []) if m not in allowed_mcp_names]
+    return {
+        "grant_builtin_tools": [t for t in data.get("grant_builtin_tools", []) if t in {"python_exec", "read_file", "write_file", "web_fetch"}],
+        "grant_mcp_tools": granted_mcp,
+        "prompt_fixes": data.get("prompt_fixes", []) or [],
+        "add_examples": data.get("add_examples", []) or [],
+        "rejected": (data.get("rejected", []) or []) + [{"request": m, "reason": "not in allowed MCP set"} for m in dropped],
+        "rationale": data.get("rationale", ""),
+    }
 
 
 def score_output(
