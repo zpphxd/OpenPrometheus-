@@ -1,0 +1,20 @@
+[project]
+name = "openprometheus"
+version = "0.1.0"
+description = "A recursive agent builder: designs, tests, and self-improves specialized agents for any task, on any foundational model."
+requires-python = ">=3.9"
+dependencies = []  # the default claude-code provider needs no Python deps; `anthropic`/`openai` are optional
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40"]
+openai = ["openai>=1.0"]
+
+[project.scripts]
+prometheus = "prometheus.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["prometheus", "prometheus.providers", "prometheus.tools"]

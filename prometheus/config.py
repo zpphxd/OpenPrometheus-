@@ -34,6 +34,7 @@ class Config:
     patience: int = 2
     tests_per_round: int = 6
     allow_candidate_code_exec: bool = False
+    export_cc: bool = True
     runs_dir: Path = field(default_factory=lambda: Path("runs"))
 
     def role(self, name: str) -> RoleConfig:
@@ -49,6 +50,7 @@ class Config:
         patience: Optional[int] = None,
         tests_per_round: Optional[int] = None,
         allow_candidate_code_exec: Optional[bool] = None,
+        export_cc: Optional[bool] = None,
         runs_dir: Optional[Path] = None,
     ) -> "Config":
         base_provider = provider or os.environ.get("PROMETHEUS_PROVIDER") or DEFAULT_PROVIDER
@@ -79,5 +81,6 @@ class Config:
             allow_candidate_code_exec=bool(allow_candidate_code_exec)
             if allow_candidate_code_exec is not None
             else os.environ.get("PROMETHEUS_ALLOW_CODE_EXEC", "").lower() in ("1", "true", "yes"),
+            export_cc=export_cc if export_cc is not None else True,
             runs_dir=runs_dir or Path(os.environ.get("PROMETHEUS_RUNS_DIR", "runs")),
         )
