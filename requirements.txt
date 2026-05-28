@@ -1,0 +1,7 @@
+# Core: the Anthropic SDK is used by the `anthropic` provider (already installed system-wide v0.75.0).
+anthropic>=0.40
+
+# Optional: only needed for the `openai` provider. Install with `pip install openai`.
+# openai>=1.0
+
+# The default `claude-code` provider shells out to the `claude` CLI and needs NO Python deps and NO API key.

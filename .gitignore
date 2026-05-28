@@ -1,0 +1,18 @@
+# Prometheus run artifacts (per-run candidate/test/eval output) — never commit
+runs/
+
+# Secrets
+.env
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# OS
+.DS_Store
