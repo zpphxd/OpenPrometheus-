@@ -1,9 +1,16 @@
 # OpenPrometheus
 
-**A recursive agent builder.** Give it a task; it designs a first-attempt specialized
-agent, *masterfully creates its own roster of sub-agents* to stress-test and benchmark
-that agent, scores it ruthlessly, rewrites its architecture, and loops — pushing the
-agent until it's as good as it can get.
+**A recursive agent builder.** Give it a task; it builds a first-attempt agent, then
+**manufactures an adversarial swarm of sub-agents to battle-test and benchmark it, diagnoses
+exactly why it failed, goes back to the table and rewrites it — then re-tests against a
+harder swarm, and repeats until the agent stops improving.**
+
+In plain terms, the cycle is:
+
+> **build the agent → manufacture an adversarial swarm for it → battle-test + benchmark
+> across many dimensions → diagnose exactly why it failed → go back to the table and rewrite
+> to kill those failures → re-test against an escalated swarm → repeat until it can't get
+> meaningfully better.**
 
 Works on **any foundational model**: use the default Claude Code auth (no API key), or
 plug in an Anthropic / OpenAI API key. Every Prometheus role can target a different model.
@@ -18,32 +25,47 @@ prometheus "Convert messy human-written dates into strict ISO 8601, resolving am
 task ─▶ ARCHITECT ─▶ candidate agent v1
             │
             ▼
-       STRATEGIST ─▶ creates specialized SUB-AGENTS for this domain
-            │           (test_generator · adversary · scorer · benchmarker)
-            ▼
-  sub-agents generate a test curriculum (basic → edge → adversarial)
+       STRATEGIST ─▶ manufactures an ADVERSARIAL SWARM built for this agent
             │
-            ▼          ┌──────────────── improvement loop ────────────────┐
-       RUNNER ─▶ scorer/benchmarker sub-agents grade outputs ─▶ IMPROVER ─▶ vN+1
-            ▲                  │  Strategist spawns NEW specialists                │
-            │                  │  targeting freshly-revealed weaknesses            │
+            ├─ ATTACKERS  (test_generator · adversary)  →  hard cases, trick inputs
+            └─ JUDGES     (scorer · benchmarker)        →  ruthless scores + DIAGNOSIS
+            │
+            ▼          ┌──────────────── back to the table ────────────────┐
+       RUNNER ─▶ swarm battle-tests + benchmarks the agent ─▶ IMPROVER ─▶ vN+1
+            ▲                  │  Strategist ESCALATES: spawns new attackers       │
+            │                  │  aimed at the weaknesses that just surfaced       │
             └──────────────────────────────────────────────────────────────────────┘
               stop when: score ≥ threshold · max iters · plateau
 ```
 
 - **Architect** — designs the candidate: a sharp system prompt, an IO contract, and the
   *minimal* tools the task needs (most tasks need none).
-- **Strategist (sub-agent factory)** — the core capability: it inspects the candidate's
-  domain and builds purpose-built sub-agents to probe it. A date parser gets a locale
-  ambiguity adversary and an ISO-8601 compliance benchmarker; a SQL agent gets an
-  injection adversary and a schema-correctness scorer. As weaknesses surface, it spawns
-  new specialists to attack them.
-- **Sub-agents** — themselves Prometheus-built agents (same portable spec). Generators
-  and adversaries produce test cases; scorers and benchmarkers grade outputs strictly.
-- **Improver** — rewrites the candidate's *architecture* to fix diagnosed failures.
+- **Strategist (the swarm factory)** — the core capability: it inspects the candidate's
+  domain and **manufactures an adversarial swarm built for THIS agent**, not a fixed test
+  set. A date parser gets a locale-ambiguity adversary and an ISO-8601 benchmarker; a SQL
+  agent gets an injection adversary and a schema-correctness scorer. Different candidate →
+  different swarm.
+- **The swarm splits into two jobs:**
+  - **Attackers** (`test_generator` + `adversary`) — generate the hard cases: edge
+    conditions, malformed input, trick scenarios, injection attempts. They're trying to
+    *break* the agent, not pat it on the head.
+  - **Judges** (`scorer` + `benchmarker`) — grade each output ruthlessly across separate
+    dimensions and, crucially, produce a **diagnosis, not just a number** — "failed because
+    it fabricated a source," not "6/10."
+- **Improver — back to the table.** That diagnosis makes the rewrite *surgical*: it gets
+  the specific failures (plus, optionally, the candidate's own self-report of what it
+  needs) and rewrites the *architecture* to kill those exact failure modes — not reword.
+- **The swarm escalates.** Each round the Strategist can spawn *new* attackers aimed at the
+  weaknesses that just surfaced, so passing gets harder as the agent gets better. The
+  difference between "it passed my 5 tests" and "it survived everything we could throw at
+  it, and we kept inventing worse things to throw."
 
-The insight (borrowed from GAN-style harnesses): an agent is a pathological optimist
-about its own work, so a **separate, ruthless evaluator** is what actually drives quality.
+Why a *separate* swarm (borrowed from GAN-style harnesses): an agent is a pathological
+optimist about its own work, so judges are split off from the builder — an agent grading
+itself is a pushover. And the quality ceiling is "as ruthless as the judge swarm," which is
+why **benchmarkers that *check* a hard metric** (does this number match the tool's output
+exactly?) matter more than soft "rate this 1–10" scorers. The more a dimension can be
+checked rather than opined on, the more real the score.
 
 ## Install
 
